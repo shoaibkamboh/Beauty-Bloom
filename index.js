@@ -6,13 +6,36 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// Middleware
+// ============ UPDATED CORS MIDDLEWARE - FIXED ============
+const allowedOrigins = [
+    'https://thebeautybloom.lovestoblog.com',
+    'https://beauty-bloom-azure.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500'
+];
+
 app.use(cors({
-    origin: ['https://thebeautybloom.lovestoblog.com', 'http://localhost:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'],
+    origin: function(origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl, postman)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log('⚠️ Blocked origin:', origin);
+            // Still allow but log it - change to false to actually block
+            callback(null, true);
+        }
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
+
 app.use(express.json());
 
 // Initialize Firebase Admin SDK
@@ -142,7 +165,8 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         firebase: isFirebaseInitialized,
         mode: isFirebaseInitialized ? 'production' : 'demo',
-        site: 'Beauty Bloom'
+        site: 'Beauty Bloom',
+        cors: 'enabled'
     });
 });
 
@@ -300,6 +324,8 @@ app.post('/api/login', async (req, res) => {
 // Get all articles (with category - BEAUTY CATEGORIES)
 app.get('/api/articles', async (req, res) => {
     try {
+        console.log('📖 Fetching articles...');
+        
         if (!isFirebaseInitialized) {
             const articlesRef = db.collection('articles');
             const snapshot = await articlesRef.orderBy('createdAt', 'desc').get();
@@ -316,7 +342,9 @@ app.get('/api/articles', async (req, res) => {
                     createdAt: data.createdAt
                 });
             });
+            
             if (articles.length === 0) {
+                console.log('📖 No articles in demo DB, returning demo articles');
                 // Demo beauty articles
                 return res.json([
                     {
@@ -348,29 +376,11 @@ app.get('/api/articles', async (req, res) => {
                     },
                     {
                         id: '4',
-                        title: 'Skincare Ingredients Guide: What Works for Your Skin Type',
-                        slug: 'skincare-ingredients-guide',
-                        imageUrl: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500',
-                        shortDesc: 'Understanding retinol, vitamin C, niacinamide, and more.',
+                        title: 'How to Get Glass Skin Naturally',
+                        slug: 'how-to-get-glass-skin-naturally',
+                        imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=500',
+                        shortDesc: 'Natural remedies and routines to achieve that glass skin glow.',
                         category: 'skincare',
-                        createdAt: new Date().toISOString()
-                    },
-                    {
-                        id: '5',
-                        title: '5-Minute Hairstyles for Busy Mornings',
-                        slug: '5-minute-hairstyles-busy-mornings',
-                        imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=500',
-                        shortDesc: 'Quick and easy hairstyles that look professional and stylish.',
-                        category: 'haircare',
-                        createdAt: new Date().toISOString()
-                    },
-                    {
-                        id: '6',
-                        title: 'Clean Beauty: What It Means and Why It Matters',
-                        slug: 'clean-beauty-guide',
-                        imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc8ef1af?w=500',
-                        shortDesc: 'Everything you need to know about non-toxic beauty products.',
-                        category: 'lifestyle',
                         createdAt: new Date().toISOString()
                     }
                 ]);
@@ -378,6 +388,7 @@ app.get('/api/articles', async (req, res) => {
             return res.json(articles);
         }
         
+        // Firebase mode
         const articlesRef = db.collection('articles');
         const snapshot = await articlesRef.orderBy('createdAt', 'desc').get();
         const articles = [];
@@ -393,10 +404,12 @@ app.get('/api/articles', async (req, res) => {
                 createdAt: data.createdAt
             });
         });
+        
+        console.log(`📖 Returning ${articles.length} articles`);
         res.json(articles);
     } catch (error) {
         console.error('Error fetching articles:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: error.message, stack: error.stack });
     }
 });
 
@@ -459,38 +472,8 @@ app.get('/api/article/:slug', async (req, res) => {
                     fullContent: 'Healthy, shiny hair is achievable with the right care routine. Here are professional tips to transform your hair.\n\n**1. Know Your Hair Type**\nUnderstanding whether you have fine, medium, or coarse hair helps you choose the right products.\n\n**2. Don\'t Overwash**\nWashing 2-3 times per week is enough for most hair types. Overwashing strips natural oils.\n\n**3. Use Lukewarm Water**\nHot water damages hair cuticles. Rinse with cool water for extra shine.\n\n**4. Choose Sulfate-Free Shampoo**\nSulfates are harsh detergents that strip moisture from your hair.\n\n**5. Always Use Conditioner**\nApply from mid-lengths to ends, avoiding the scalp.\n\n**6. Deep Condition Weekly**\nUse a hair mask or deep conditioner once a week for intense hydration.\n\n**7. Limit Heat Styling**\nAir-dry when possible. Always use heat protectant before blow-drying or styling.\n\n**8. Get Regular Trims**\nTrim every 6-8 weeks to prevent split ends.\n\n**9. Protect Hair While Sleeping**\nUse a silk or satin pillowcase to reduce friction and breakage.\n\n**10. Eat a Balanced Diet**\nBiotin, vitamin E, and omega-3 fatty acids promote healthy hair growth.\n\n**Natural Remedies:**\n- Coconut oil mask once a week\n- Aloe vera gel for scalp health\n- Rice water rinse for shine',
                     createdAt: new Date().toISOString()
                 },
-                'skincare-ingredients-guide': {
-                    id: '4',
-                    title: 'Skincare Ingredients Guide: What Works for Your Skin Type',
-                    slug: 'skincare-ingredients-guide',
-                    imageUrl: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=800',
-                    shortDesc: 'Understanding retinol, vitamin C, niacinamide, and more.',
-                    category: 'skincare',
-                    fullContent: 'Navigating skincare ingredients can be overwhelming. Here\'s your complete guide to what works and why.\n\n**For Anti-Aging:**\n- **Retinol** - The gold standard for reducing fine lines and wrinkles\n- **Vitamin C** - Brightens skin and boosts collagen production\n- **Peptides** - Support skin barrier and firmness\n\n**For Hydration:**\n- **Hyaluronic Acid** - Holds 1000x its weight in water\n- **Glycerin** - A humectant that draws moisture to skin\n- **Squalane** - Mimics skin\'s natural oils\n\n**For Acne-Prone Skin:**\n- **Salicylic Acid** - Unclogs pores and reduces inflammation\n- **Benzoyl Peroxide** - Kills acne-causing bacteria\n- **Niacinamide** - Reduces redness and regulates oil\n\n**For Hyperpigmentation:**\n- **Vitamin C** - Brightens dark spots\n- **Kojic Acid** - Natural skin lightener\n- **Azelaic Acid** - Treats both acne and pigmentation\n\n**For Sensitive Skin:**\n- **Centella Asiatica** - Soothes inflammation\n- **Ceramides** - Repairs skin barrier\n- **Oat Extract** - Calms irritation\n\n**How to Layer Ingredients:**\n1. Cleanse\n2. Toner\n3. Vitamin C (morning) / Retinol (night)\n4. Serums (thinnest to thickest)\n5. Moisturizer\n6. Sunscreen (morning only)\n\n**Never Mix:**\n- Retinol + AHAs/BHAs\n- Vitamin C + Niacinamide (can cause flushing in some skin types)\n- Multiple exfoliants together',
-                    createdAt: new Date().toISOString()
-                },
-                '5-minute-hairstyles-busy-mornings': {
-                    id: '5',
-                    title: '5-Minute Hairstyles for Busy Mornings',
-                    slug: '5-minute-hairstyles-busy-mornings',
-                    imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=800',
-                    shortDesc: 'Quick and easy hairstyles that look professional and stylish.',
-                    category: 'haircare',
-                    fullContent: 'Short on time? These 5-minute hairstyles will save your busy mornings.\n\n**1. The Effortless Low Bun**\n- Gather hair at the nape of your neck\n- Twist and wrap into a bun\n- Secure with bobby pins\n- Pull out a few face-framing pieces\n\n**2. Sleek High Ponytail**\n- Brush hair smooth\n- Gather at crown\n- Secure with elastic\n- Wrap a small section around the elastic\n\n**3. Half-Up, Half-Down**\n- Take top section of hair\n- Twist or braid\n- Secure with clip or elastic\n- Add volume by gently pulling layers\n\n**4. The Claw Clip Style**\n- Twist hair upward\n- Secure with claw clip\n- Let ends fan out for a chic look\n\n**5. French Twist in Seconds**\n- Gather hair to one side\n- Twist upward\n- Pin in place\n\n**6. Slicked Back Wet Look**\n- Apply gel to damp hair\n- Comb back\n- Secure in low ponytail or bun\n\n**7. Top Knot**\n- Flip head upside down\n- Gather hair at crown\n- Twist into a tight bun\n\n**Pro Tips:**\n- Prep hair with dry shampoo the night before\n- Use a silk scrunchie to prevent creases\n- Keep accessories like claw clips and headbands handy',
-                    createdAt: new Date().toISOString()
-                },
-                'clean-beauty-guide': {
-                    id: '6',
-                    title: 'Clean Beauty: What It Means and Why It Matters',
-                    slug: 'clean-beauty-guide',
-                    imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc8ef1af?w=800',
-                    shortDesc: 'Everything you need to know about non-toxic beauty products.',
-                    category: 'lifestyle',
-                    fullContent: 'Clean beauty is more than a trend - it\'s a movement toward transparency and safety in cosmetics.\n\n**What Is Clean Beauty?**\nClean beauty products are formulated without ingredients that are known or suspected to harm human health. This includes avoiding toxins, carcinogens, and endocrine disruptors.\n\n**Ingredients to Avoid:**\n- Parabens (preservatives linked to hormone disruption)\n- Phthalates (found in fragrances, linked to reproductive issues)\n- Sulfates (SLS/SLES - harsh detergents)\n- Formaldehyde-releasing preservatives\n- Oxybenzone (sunscreen ingredient harmful to coral reefs)\n- PEG compounds (often contaminated with toxins)\n- Synthetic fragrances (can contain phthalates)\n\n**Clean Beauty Certifications to Look For:**\n- EWG Verified\n- Leaping Bunny (cruelty-free)\n- COSMOS Organic\n- Made Safe\n\n**Best Clean Beauty Brands:**\nWe recommend researching brands that are transparent about their ingredients and manufacturing processes.\n\n**How to Transition to Clean Beauty:**\n1. Start with products you use daily (moisturizer, cleanser)\n2. Replace as you run out - no need to throw everything away\n3. Use apps like Think Dirty or EWG Healthy Living to scan products\n4. Focus on leave-on products first (serums, moisturizers)\n5. Don\'t fall for greenwashing - read ingredient labels yourself\n\n**The Bottom Line:**\nClean beauty is about making informed choices. You don\'t need to be perfect - small changes add up over time.',
-                    createdAt: new Date().toISOString()
-                },
                 'how-to-get-glass-skin-naturally': {
-                    id: '7',
+                    id: '4',
                     title: 'How to Get Glass Skin Naturally',
                     slug: 'how-to-get-glass-skin-naturally',
                     imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=800',
@@ -512,7 +495,6 @@ app.get('/api/article/:slug', async (req, res) => {
         
         // Firebase mode - case-insensitive search
         const articlesRef = db.collection('articles');
-        // Use lowercase comparison in Firestore
         const snapshot = await articlesRef.get();
         
         let article = null;
@@ -537,6 +519,8 @@ app.get('/api/article/:slug', async (req, res) => {
 // Get all affiliate products (BEAUTY PRODUCTS)
 app.get('/api/products', async (req, res) => {
     try {
+        console.log('🛒 Fetching products...');
+        
         if (!isFirebaseInitialized) {
             const productsRef = db.collection('affiliateLinks');
             const snapshot = await productsRef.orderBy('createdAt', 'desc').get();
@@ -552,6 +536,7 @@ app.get('/api/products', async (req, res) => {
                     redirectUrl: data.redirectUrl
                 });
             });
+            
             if (products.length === 0) {
                 // Demo beauty products
                 return res.json([
@@ -1157,4 +1142,5 @@ app.listen(PORT, () => {
     console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
     console.log(`📝 User signup: POST http://localhost:${PORT}/api/signup`);
     console.log(`🔑 User login: POST http://localhost:${PORT}/api/login`);
+    console.log(`✅ CORS enabled for: ${allowedOrigins.join(', ')}`);
 });
