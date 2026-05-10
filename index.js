@@ -38,14 +38,12 @@ let db = null;
 let auth = null;
 let isFirebaseInitialized = false;
 
-// Check if all required Firebase credentials are present
 const hasFirebaseCreds = process.env.FIREBASE_PROJECT_ID && 
                          process.env.FIREBASE_PRIVATE_KEY && 
                          process.env.FIREBASE_CLIENT_EMAIL;
 
 if (!hasFirebaseCreds) {
-    console.error('❌ CRITICAL: Missing Firebase credentials in environment variables');
-    console.error('Required: FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL');
+    console.error('❌ Missing Firebase credentials');
 } else {
     try {
         const serviceAccount = {
@@ -61,30 +59,30 @@ if (!hasFirebaseCreds) {
         db = admin.firestore();
         auth = admin.auth();
         isFirebaseInitialized = true;
-        console.log('✅ Firebase initialized successfully');
+        console.log('✅ Firebase initialized');
     } catch (error) {
-        console.error('❌ Firebase initialization error:', error.message);
+        console.error('❌ Firebase error:', error.message);
     }
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'beauty-bloom-secret-key-2026';
 
-// ============ HELPER FUNCTIONS ============
+// ============ VERIFY ADMIN MIDDLEWARE ============
 const verifyAdmin = async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
-        return res.status(401).json({ error: 'Unauthorized - No token provided' });
+        return res.status(401).json({ error: 'Unauthorized' });
     }
     
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         if (decoded.email !== process.env.ADMIN_EMAIL) {
-            return res.status(403).json({ error: 'Forbidden - Invalid admin credentials' });
+            return res.status(403).json({ error: 'Forbidden' });
         }
         req.admin = decoded;
         next();
     } catch (error) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        return res.status(401).json({ error: 'Invalid token' });
     }
 };
 
@@ -93,12 +91,11 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
-        firebase: isFirebaseInitialized,
-        site: 'Beauty Bloom API'
+        firebase: isFirebaseInitialized
     });
 });
 
-// ============ USER AUTHENTICATION ============
+// ============ USER SIGNUP ============
 app.post('/api/signup', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -112,28 +109,24 @@ app.post('/api/signup', async (req, res) => {
         }
         
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
-        // Check if user exists
         const usersRef = db.collection('users');
-        const existingSnapshot = await usersRef.where('email', '==', email).limit(1).get();
+        const existing = await usersRef.where('email', '==', email).limit(1).get();
         
-        if (!existingSnapshot.empty) {
+        if (!existing.empty) {
             return res.status(400).json({ error: 'User already exists' });
         }
         
-        // Create Firebase Auth user
         const userRecord = await auth.createUser({
             email: email,
             password: password,
             displayName: name
         });
         
-        // Hash password for Firestore
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // Save to Firestore
         await db.collection('users').doc(userRecord.uid).set({
             name: name,
             email: email,
@@ -142,7 +135,6 @@ app.post('/api/signup', async (req, res) => {
             uid: userRecord.uid
         });
         
-        // Add to subscribers (not active by default)
         await db.collection('subscribers').add({
             email: email,
             name: name,
@@ -150,12 +142,7 @@ app.post('/api/signup', async (req, res) => {
             subscribedAt: new Date().toISOString()
         });
         
-        console.log(`✅ User created: ${email}`);
-        
-        res.json({ 
-            success: true, 
-            message: 'Account created successfully! Please login.'
-        });
+        res.json({ success: true, message: 'Account created successfully!' });
         
     } catch (error) {
         console.error('Signup error:', error);
@@ -163,6 +150,7 @@ app.post('/api/signup', async (req, res) => {
     }
 });
 
+// ============ USER LOGIN ============
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -172,7 +160,7 @@ app.post('/api/login', async (req, res) => {
         }
         
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
         const usersRef = db.collection('users');
@@ -201,12 +189,7 @@ app.post('/api/login', async (req, res) => {
             { expiresIn: '7d' }
         );
         
-        res.json({
-            success: true,
-            token,
-            email: user.email,
-            name: user.name
-        });
+        res.json({ success: true, token, email: user.email, name: user.name });
         
     } catch (error) {
         console.error('Login error:', error);
@@ -214,15 +197,14 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ============ ARTICLES ============
+// ============ GET ALL ARTICLES ============
 app.get('/api/articles', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
-        const articlesRef = db.collection('articles');
-        const snapshot = await articlesRef.orderBy('createdAt', 'desc').get();
+        const snapshot = await db.collection('articles').orderBy('createdAt', 'desc').get();
         const articles = [];
         
         snapshot.forEach(doc => {
@@ -240,23 +222,23 @@ app.get('/api/articles', async (req, res) => {
         
         res.json(articles);
     } catch (error) {
-        console.error('Error fetching articles:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// ============ GET SINGLE ARTICLE (CASE-INSENSITIVE) ============
 app.get('/api/article/:slug', async (req, res) => {
     try {
         let slug = req.params.slug.toLowerCase().trim();
         
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
-        const articlesRef = db.collection('articles');
-        const snapshot = await articlesRef.get();
-        
+        const snapshot = await db.collection('articles').get();
         let article = null;
+        
         snapshot.forEach(doc => {
             const data = doc.data();
             if (data.slug && data.slug.toLowerCase() === slug) {
@@ -270,16 +252,16 @@ app.get('/api/article/:slug', async (req, res) => {
         
         res.json(article);
     } catch (error) {
-        console.error('Error fetching article:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ PRODUCTS ============
+// ============ GET ALL PRODUCTS ============
 app.get('/api/products', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
         const snapshot = await db.collection('affiliateLinks').orderBy('createdAt', 'desc').get();
@@ -299,12 +281,12 @@ app.get('/api/products', async (req, res) => {
         
         res.json(products);
     } catch (error) {
-        console.error('Error fetching products:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ SUBSCRIPTION & EBOOKS ============
+// ============ CHECK SUBSCRIPTION ============
 app.post('/api/check-subscription', async (req, res) => {
     try {
         const { email } = req.body;
@@ -313,11 +295,10 @@ app.post('/api/check-subscription', async (req, res) => {
         }
         
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
-        const subscriberRef = db.collection('subscribers');
-        const snapshot = await subscriberRef.where('email', '==', email).limit(1).get();
+        const snapshot = await db.collection('subscribers').where('email', '==', email).limit(1).get();
         
         if (snapshot.empty) {
             return res.json({ isActive: false });
@@ -330,11 +311,12 @@ app.post('/api/check-subscription', async (req, res) => {
         
         res.json({ isActive: isActive });
     } catch (error) {
-        console.error('Error checking subscription:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// ============ GET EBOOKS (REQUIRES SUBSCRIPTION) ============
 app.post('/api/ebooks', async (req, res) => {
     try {
         const { email } = req.body;
@@ -343,10 +325,9 @@ app.post('/api/ebooks', async (req, res) => {
         }
         
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
-        // Check subscription
         const subSnapshot = await db.collection('subscribers').where('email', '==', email).limit(1).get();
         
         if (subSnapshot.empty) {
@@ -377,11 +358,12 @@ app.post('/api/ebooks', async (req, res) => {
         
         res.json(ebooks);
     } catch (error) {
-        console.error('Error fetching ebooks:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// ============ NEWSLETTER SUBSCRIBE ============
 app.post('/api/subscribe', async (req, res) => {
     try {
         const { email } = req.body;
@@ -390,10 +372,11 @@ app.post('/api/subscribe', async (req, res) => {
         }
         
         if (!isFirebaseInitialized) {
-            return res.status(503).json({ error: 'Service temporarily unavailable' });
+            return res.status(503).json({ error: 'Service unavailable' });
         }
         
         const existing = await db.collection('subscribers').where('email', '==', email).get();
+        
         if (!existing.empty) {
             return res.json({ message: 'Email already registered' });
         }
@@ -406,7 +389,7 @@ app.post('/api/subscribe', async (req, res) => {
         
         res.json({ success: true, message: 'Subscribed successfully!' });
     } catch (error) {
-        console.error('Error subscribing:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -417,11 +400,11 @@ app.post('/api/admin/login', async (req, res) => {
         const { email, password } = req.body;
         
         if (email !== process.env.ADMIN_EMAIL) {
-            return res.status(401).json({ error: 'Invalid email or password' });
+            return res.status(401).json({ error: 'Invalid credentials' });
         }
         
         if (password !== process.env.ADMIN_PASSWORD) {
-            return res.status(401).json({ error: 'Invalid email or password' });
+            return res.status(401).json({ error: 'Invalid credentials' });
         }
         
         const token = jwt.sign(
@@ -432,23 +415,23 @@ app.post('/api/admin/login', async (req, res) => {
         
         res.json({ success: true, token, email });
     } catch (error) {
-        console.error('Admin login error:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ PROTECTED ADMIN ROUTES ============
+// ============ ADMIN VERIFY ============
 app.get('/api/admin/verify', verifyAdmin, (req, res) => {
     res.json({ valid: true, email: req.admin.email });
 });
 
+// ============ ADMIN: GET ALL EBOOKS ============
 app.get('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     try {
         const snapshot = await db.collection('ebooks').orderBy('createdAt', 'desc').get();
         const ebooks = [];
         snapshot.forEach(doc => {
-            const data = doc.data();
-            ebooks.push({ id: doc.id, ...data });
+            ebooks.push({ id: doc.id, ...doc.data() });
         });
         res.json(ebooks);
     } catch (error) {
@@ -456,9 +439,14 @@ app.get('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: ADD ARTICLE ============
 app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
     try {
         const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
+        
+        if (!title || !slug || !imageUrl || !shortDesc || !fullContent) {
+            return res.status(400).json({ error: 'All fields required' });
+        }
         
         const normalizedSlug = slug.toLowerCase().trim();
         
@@ -479,6 +467,7 @@ app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: UPDATE ARTICLE ============
 app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -504,6 +493,7 @@ app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: DELETE ARTICLE ============
 app.delete('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     try {
         await db.collection('articles').doc(req.params.id).delete();
@@ -513,13 +503,18 @@ app.delete('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: ADD EBOOK ============
 app.post('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     try {
         const { name, imageUrl, pdfUrl } = req.body;
+        
         const ebook = {
-            name, imageUrl, pdfUrl,
+            name,
+            imageUrl,
+            pdfUrl,
             createdAt: new Date().toISOString()
         };
+        
         const docRef = await db.collection('ebooks').add(ebook);
         res.json({ id: docRef.id, ...ebook });
     } catch (error) {
@@ -527,6 +522,7 @@ app.post('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: DELETE EBOOK ============
 app.delete('/api/admin/ebooks/:id', verifyAdmin, async (req, res) => {
     try {
         await db.collection('ebooks').doc(req.params.id).delete();
@@ -536,13 +532,20 @@ app.delete('/api/admin/ebooks/:id', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: ADD PRODUCT ============
 app.post('/api/admin/products', verifyAdmin, async (req, res) => {
     try {
         const { name, imageUrl, price, description, redirectUrl } = req.body;
+        
         const product = {
-            name, imageUrl, price, description, redirectUrl,
+            name,
+            imageUrl,
+            price,
+            description,
+            redirectUrl,
             createdAt: new Date().toISOString()
         };
+        
         const docRef = await db.collection('affiliateLinks').add(product);
         res.json({ id: docRef.id, ...product });
     } catch (error) {
@@ -550,6 +553,7 @@ app.post('/api/admin/products', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: DELETE PRODUCT ============
 app.delete('/api/admin/products/:id', verifyAdmin, async (req, res) => {
     try {
         await db.collection('affiliateLinks').doc(req.params.id).delete();
@@ -559,6 +563,7 @@ app.delete('/api/admin/products/:id', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: GET ALL SUBSCRIBERS ============
 app.get('/api/admin/subscribers', verifyAdmin, async (req, res) => {
     try {
         const snapshot = await db.collection('subscribers').orderBy('subscribedAt', 'desc').get();
@@ -572,6 +577,7 @@ app.get('/api/admin/subscribers', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: UPDATE SUBSCRIBER STATUS ============
 app.put('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
     try {
         const { isActive } = req.body;
@@ -585,6 +591,7 @@ app.put('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
     }
 });
 
+// ============ ADMIN: DELETE SUBSCRIBER ============
 app.delete('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
     try {
         await db.collection('subscribers').doc(req.params.id).delete();
