@@ -3,221 +3,669 @@ const admin = require('firebase-admin');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const path = require('path');
 
 const app = express();
 
-// ============ CORS ============
+// Middleware
 app.use(cors({
-    origin: '*',
+    origin: ['https://thebeautybloom.lovestoblog.com', 'http://localhost:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.options('*', cors());
 app.use(express.json());
 
-// ============ SERVE STATIC HTML FILES ============
-// This is the CRITICAL FIX - serve HTML files from the current directory
-app.use(express.static(__dirname));
+// Initialize Firebase Admin SDK
+const serviceAccount = {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+};
 
-// Handle article routes - serve article.html
-app.get('/article/:slug', (req, res) => {
-    res.sendFile(path.join(__dirname, 'article.html'));
-});
-
-// Handle other page routes
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-app.get('/login', (req, res) => {
-    res.sendFile(path.join(__dirname, 'login.html'));
-});
-
-app.get('/signup', (req, res) => {
-    res.sendFile(path.join(__dirname, 'signup.html'));
-});
-
-app.get('/products', (req, res) => {
-    res.sendFile(path.join(__dirname, 'products.html'));
-});
-
-app.get('/ebook', (req, res) => {
-    res.sendFile(path.join(__dirname, 'ebook.html'));
-});
-
-app.get('/subscription', (req, res) => {
-    res.sendFile(path.join(__dirname, 'subscription.html'));
-});
-
-app.get('/admin-login', (req, res) => {
-    res.sendFile(path.join(__dirname, 'admin-login.html'));
-});
-
-app.get('/admin-panel', (req, res) => {
-    res.sendFile(path.join(__dirname, 'admin-panel.html'));
-});
-
-// ============ FIREBASE INITIALIZATION ============
 let db = null;
 let auth = null;
 let isFirebaseInitialized = false;
 
-const hasFirebaseCreds = process.env.FIREBASE_PROJECT_ID && 
-                         process.env.FIREBASE_PRIVATE_KEY && 
-                         process.env.FIREBASE_CLIENT_EMAIL;
-
-if (!hasFirebaseCreds) {
-    console.error('❌ Missing Firebase credentials');
-} else {
-    try {
-        const serviceAccount = {
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        };
-        
+try {
+    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
         });
-        
         db = admin.firestore();
         auth = admin.auth();
         isFirebaseInitialized = true;
-        console.log('✅ Firebase initialized');
-    } catch (error) {
-        console.error('❌ Firebase error:', error.message);
+        console.log('✅ Firebase initialized successfully');
+    } else {
+        console.log('⚠️ Firebase credentials missing, running in demo mode');
+        // Demo data store (in-memory for testing)
+        const demoData = {
+            subscribers: [],
+            articles: [],
+            affiliateLinks: [],
+            ebooks: [],
+            users: []
+        };
+        
+        db = {
+            collection: (name) => ({
+                add: async (data) => {
+                    console.log(`📝 Demo: Added to ${name}:`, data);
+                    const id = Date.now().toString();
+                    if (!demoData[name]) demoData[name] = [];
+                    demoData[name].push({ id, ...data });
+                    return { id };
+                },
+                get: async () => ({
+                    empty: demoData[name]?.length === 0,
+                    forEach: (callback) => demoData[name]?.forEach(doc => callback({ data: () => doc, id: doc.id })),
+                    docs: demoData[name]?.map(doc => ({ data: () => doc, id: doc.id })) || []
+                }),
+                where: (field, op, value) => ({
+                    limit: () => ({
+                        get: async () => ({
+                            empty: !demoData[name]?.some(d => d[field] === value),
+                            forEach: (callback) => demoData[name]?.filter(d => d[field] === value).forEach(doc => callback({ data: () => doc, id: doc.id }))
+                        })
+                    })
+                }),
+                doc: (id) => ({
+                    update: async (data) => {
+                        console.log(`📝 Demo: Updated ${name}/${id}:`, data);
+                        const index = demoData[name]?.findIndex(d => d.id === id);
+                        if (index !== -1) demoData[name][index] = { ...demoData[name][index], ...data };
+                    },
+                    delete: async () => {
+                        console.log(`📝 Demo: Deleted ${name}/${id}`);
+                        const index = demoData[name]?.findIndex(d => d.id === id);
+                        if (index !== -1) demoData[name].splice(index, 1);
+                    }
+                }),
+                orderBy: () => ({
+                    get: async () => ({
+                        empty: demoData[name]?.length === 0,
+                        forEach: (callback) => demoData[name]?.forEach(doc => callback({ data: () => doc, id: doc.id })),
+                        docs: demoData[name]?.map(doc => ({ data: () => doc, id: doc.id })) || []
+                    })
+                })
+            })
+        };
+        auth = {
+            createUser: async (data) => {
+                console.log('📝 Demo: Creating user:', data);
+                return { uid: 'demo-' + Date.now() };
+            },
+            getUserByEmail: async (email) => {
+                throw new Error('User not found');
+            }
+        };
     }
+} catch (error) {
+    console.error('❌ Firebase initialization error:', error.message);
+    isFirebaseInitialized = false;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'beauty-bloom-secret';
+const JWT_SECRET = process.env.JWT_SECRET || 'beauty-blog-secret-key-change-in-production-2026';
 
-// ============ VERIFY ADMIN ============
-const verifyAdmin = (req, res, next) => {
+// ============ MIDDLEWARE ============
+const verifyAdmin = async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    if (!token) {
+        return res.status(401).json({ error: 'Unauthorized - No token provided' });
+    }
+    
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.email !== process.env.ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+        if (decoded.email !== process.env.ADMIN_EMAIL) {
+            return res.status(403).json({ error: 'Forbidden - Invalid admin credentials' });
+        }
         req.admin = decoded;
         next();
     } catch (error) {
-        return res.status(401).json({ error: 'Invalid token' });
+        return res.status(401).json({ error: 'Invalid or expired token' });
     }
 };
 
-// ============ HEALTH ============
+// ============ PUBLIC ROUTES ============
+
+// Health check
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'OK', firebase: isFirebaseInitialized });
+    res.json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        firebase: isFirebaseInitialized,
+        mode: isFirebaseInitialized ? 'production' : 'demo',
+        site: 'Beauty Bloom'
+    });
 });
 
-// ============ ARTICLES API ============
+// USER SIGNUP
+app.post('/api/signup', async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+        
+        if (!email || !password || !name) {
+            return res.status(400).json({ error: 'All fields required (name, email, password)' });
+        }
+        
+        if (password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+        
+        if (!isFirebaseInitialized) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const usersRef = db.collection('users');
+            await usersRef.add({
+                name, email, password: hashedPassword,
+                createdAt: new Date().toISOString()
+            });
+            
+            await db.collection('subscribers').add({
+                email, name, isActive: false,
+                subscribedAt: new Date().toISOString()
+            });
+            
+            return res.json({ 
+                success: true, 
+                message: 'Demo mode - Account created successfully! Please login.'
+            });
+        }
+        
+        try {
+            const existingUser = await auth.getUserByEmail(email);
+            if (existingUser) {
+                return res.status(400).json({ error: 'User already exists with this email' });
+            }
+        } catch (error) {
+            // User doesn't exist, continue
+        }
+        
+        const userRecord = await auth.createUser({
+            email: email,
+            password: password,
+            displayName: name
+        });
+        
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        await db.collection('users').doc(userRecord.uid).set({
+            name: name,
+            email: email,
+            password: hashedPassword,
+            createdAt: new Date().toISOString(),
+            uid: userRecord.uid
+        });
+        
+        await db.collection('subscribers').add({
+            email: email,
+            name: name,
+            isActive: false,
+            subscribedAt: new Date().toISOString()
+        });
+        
+        console.log(`✅ User created: ${email} (${userRecord.uid})`);
+        
+        res.json({ 
+            success: true, 
+            message: 'Account created successfully! Please login.',
+            uid: userRecord.uid
+        });
+        
+    } catch (error) {
+        console.error('Signup error:', error);
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// USER LOGIN
+app.post('/api/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password required' });
+        }
+        
+        if (!isFirebaseInitialized) {
+            const usersRef = db.collection('users');
+            const snapshot = await usersRef.where('email', '==', email).limit(1).get();
+            
+            if (snapshot.empty) {
+                return res.status(401).json({ error: 'Invalid email or password' });
+            }
+            
+            let user = null;
+            let userId = null;
+            snapshot.forEach(doc => {
+                user = doc.data();
+                userId = doc.id;
+            });
+            
+            const isValid = await bcrypt.compare(password, user.password);
+            if (!isValid) {
+                return res.status(401).json({ error: 'Invalid email or password' });
+            }
+            
+            const token = jwt.sign({ email: user.email, name: user.name, uid: userId }, JWT_SECRET, { expiresIn: '7d' });
+            
+            return res.json({ success: true, token, email: user.email, name: user.name });
+        }
+        
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('email', '==', email).limit(1).get();
+        
+        if (snapshot.empty) {
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        
+        let user = null;
+        let userId = null;
+        snapshot.forEach(doc => {
+            user = doc.data();
+            userId = doc.id;
+        });
+        
+        const isValid = await bcrypt.compare(password, user.password);
+        
+        if (!isValid) {
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        
+        const token = jwt.sign(
+            { email: user.email, name: user.name, uid: userId },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        
+        res.json({
+            success: true,
+            token,
+            email: user.email,
+            name: user.name
+        });
+        
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all articles (with category - BEAUTY CATEGORIES)
 app.get('/api/articles', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
-            return res.json([]);
+            const articlesRef = db.collection('articles');
+            const snapshot = await articlesRef.orderBy('createdAt', 'desc').get();
+            const articles = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                articles.push({
+                    id: doc.id,
+                    title: data.title,
+                    slug: data.slug,
+                    imageUrl: data.imageUrl,
+                    shortDesc: data.shortDesc,
+                    category: data.category || 'all',
+                    createdAt: data.createdAt
+                });
+            });
+            if (articles.length === 0) {
+                // Demo beauty articles
+                return res.json([
+                    {
+                        id: '1',
+                        title: '10-Step Korean Skincare Routine for Glass Skin',
+                        slug: 'korean-skincare-routine-glass-skin',
+                        imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=500',
+                        shortDesc: 'Achieve that coveted glass skin look with this complete Korean skincare guide.',
+                        category: 'skincare',
+                        createdAt: new Date().toISOString()
+                    },
+                    {
+                        id: '2',
+                        title: 'Everyday Natural Makeup Tutorial',
+                        slug: 'natural-makeup-tutorial-everyday',
+                        imageUrl: 'https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=500',
+                        shortDesc: 'Learn how to create a fresh, natural makeup look for daily wear.',
+                        category: 'makeup',
+                        createdAt: new Date().toISOString()
+                    },
+                    {
+                        id: '3',
+                        title: 'Best Hair Care Tips for Healthy Shiny Hair',
+                        slug: 'hair-care-tips-healthy-shiny-hair',
+                        imageUrl: 'https://images.unsplash.com/photo-1522338140262-f46f5913618a?w=500',
+                        shortDesc: 'Transform your hair with these professional tips and natural remedies.',
+                        category: 'haircare',
+                        createdAt: new Date().toISOString()
+                    },
+                    {
+                        id: '4',
+                        title: 'Skincare Ingredients Guide: What Works for Your Skin Type',
+                        slug: 'skincare-ingredients-guide',
+                        imageUrl: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500',
+                        shortDesc: 'Understanding retinol, vitamin C, niacinamide, and more.',
+                        category: 'skincare',
+                        createdAt: new Date().toISOString()
+                    },
+                    {
+                        id: '5',
+                        title: '5-Minute Hairstyles for Busy Mornings',
+                        slug: '5-minute-hairstyles-busy-mornings',
+                        imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=500',
+                        shortDesc: 'Quick and easy hairstyles that look professional and stylish.',
+                        category: 'haircare',
+                        createdAt: new Date().toISOString()
+                    },
+                    {
+                        id: '6',
+                        title: 'Clean Beauty: What It Means and Why It Matters',
+                        slug: 'clean-beauty-guide',
+                        imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc8ef1af?w=500',
+                        shortDesc: 'Everything you need to know about non-toxic beauty products.',
+                        category: 'lifestyle',
+                        createdAt: new Date().toISOString()
+                    }
+                ]);
+            }
+            return res.json(articles);
         }
-        const snapshot = await db.collection('articles').orderBy('createdAt', 'desc').get();
+        
+        const articlesRef = db.collection('articles');
+        const snapshot = await articlesRef.orderBy('createdAt', 'desc').get();
         const articles = [];
         snapshot.forEach(doc => {
             const data = doc.data();
             articles.push({
                 id: doc.id,
-                title: data.title || '',
-                slug: data.slug || '',
-                imageUrl: data.imageUrl || '',
-                shortDesc: data.shortDesc || '',
+                title: data.title,
+                slug: data.slug,
+                imageUrl: data.imageUrl,
+                shortDesc: data.shortDesc,
                 category: data.category || 'all',
-                createdAt: data.createdAt || new Date().toISOString()
+                createdAt: data.createdAt
             });
         });
         res.json(articles);
     } catch (error) {
+        console.error('Error fetching articles:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ SINGLE ARTICLE API ============
+// Get single article by slug
 app.get('/api/article/:slug', async (req, res) => {
     try {
-        const slug = req.params.slug.toLowerCase();
+        const slug = req.params.slug;
         
         if (!isFirebaseInitialized) {
-            return res.status(404).json({ error: 'Article not found' });
-        }
-        
-        const snapshot = await db.collection('articles').get();
-        let article = null;
-        
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.slug && data.slug.toLowerCase() === slug) {
-                article = { id: doc.id, ...data };
+            const articlesRef = db.collection('articles');
+            const snapshot = await articlesRef.where('slug', '==', slug).limit(1).get();
+            
+            if (!snapshot.empty) {
+                let article = null;
+                snapshot.forEach(doc => {
+                    article = { id: doc.id, ...doc.data() };
+                });
+                if (article) return res.json(article);
             }
-        });
+            
+            // Demo beauty articles content
+            const demoArticles = {
+                'korean-skincare-routine-glass-skin': {
+                    id: '1',
+                    title: '10-Step Korean Skincare Routine for Glass Skin',
+                    slug: 'korean-skincare-routine-glass-skin',
+                    imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=800',
+                    shortDesc: 'Achieve that coveted glass skin look with this complete Korean skincare guide.',
+                    category: 'skincare',
+                    fullContent: 'The Korean 10-step skincare routine has taken the beauty world by storm - and for good reason! This comprehensive routine focuses on hydration, gentle exfoliation, and layering products for maximum results.\n\n**Step 1: Oil Cleanser**\nStart with an oil-based cleanser to remove makeup, sunscreen, and excess sebum.\n\n**Step 2: Water-Based Cleanser**\nFollow with a gentle water-based cleanser to remove any remaining impurities.\n\n**Step 3: Exfoliator** (2-3 times per week)\nUse a gentle chemical exfoliant like AHAs or BHAs to remove dead skin cells.\n\n**Step 4: Toner**\nApply a hydrating toner to balance your skin\'s pH levels.\n\n**Step 5: Essence**\nThe heart of K-beauty - an essence boosts hydration and prepares skin for next steps.\n\n**Step 6: Serum/Ampoule**\nTarget specific concerns like dark spots, fine lines, or dullness.\n\n**Step 7: Sheet Mask** (1-2 times per week)\nGive your skin an intense hydration boost with a sheet mask.\n\n**Step 8: Eye Cream**\nGently tap eye cream to address dark circles and fine lines.\n\n**Step 9: Moisturizer**\nLock in all the hydration with a nourishing moisturizer.\n\n**Step 10: Sunscreen** (Morning routine only)\nNever skip SPF - it\'s the most important anti-aging step!',
+                    createdAt: new Date().toISOString()
+                },
+                'natural-makeup-tutorial-everyday': {
+                    id: '2',
+                    title: 'Everyday Natural Makeup Tutorial',
+                    slug: 'natural-makeup-tutorial-everyday',
+                    imageUrl: 'https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800',
+                    shortDesc: 'Learn how to create a fresh, natural makeup look for daily wear.',
+                    category: 'makeup',
+                    fullContent: 'Natural makeup is all about enhancing your features while looking like you\'re wearing nothing at all. Here\'s your step-by-step guide to achieving that "no-makeup" makeup look.\n\n**Step 1: Start with Skincare**\nAlways begin with clean, moisturized skin. Let your moisturizer sink in for 5 minutes.\n\n**Step 2: Apply Primer**\nUse a lightweight, illuminating primer for a natural glow.\n\n**Step 3: Light Coverage Foundation or Tinted Moisturizer**\nApply only where needed and blend well with a damp sponge.\n\n**Step 4: Concealer**\nUse concealer only under eyes and on any blemishes. Less is more!\n\n**Step 5: Cream Blush**\nCream blushes give a natural, skin-like finish. Apply to the apples of your cheeks.\n\n**Step 6: Light Bronzer** (optional)\nLightly bronze where the sun naturally hits.\n\n**Step 7: Natural Eyeshadow**\nUse neutral matte shades close to your skin tone. A wash of color is enough.\n\n**Step 8: Curl Lashes + Mascara**\nCurl your lashes and apply 1-2 coats of brown or black mascara.\n\n**Step 9: Brush and Shape Brows**\nFill in sparse areas with a brow pencil in small hair-like strokes.\n\n**Step 10: Tinted Lip Balm or Gloss**\nFinish with a sheer lip color that enhances your natural lip shade.\n\n**Pro tip:** Set everything with a light mist of setting spray for all-day wear!',
+                    createdAt: new Date().toISOString()
+                },
+                'hair-care-tips-healthy-shiny-hair': {
+                    id: '3',
+                    title: 'Best Hair Care Tips for Healthy Shiny Hair',
+                    slug: 'hair-care-tips-healthy-shiny-hair',
+                    imageUrl: 'https://images.unsplash.com/photo-1522338140262-f46f5913618a?w=800',
+                    shortDesc: 'Transform your hair with these professional tips and natural remedies.',
+                    category: 'haircare',
+                    fullContent: 'Healthy, shiny hair is achievable with the right care routine. Here are professional tips to transform your hair.\n\n**1. Know Your Hair Type**\nUnderstanding whether you have fine, medium, or coarse hair helps you choose the right products.\n\n**2. Don\'t Overwash**\nWashing 2-3 times per week is enough for most hair types. Overwashing strips natural oils.\n\n**3. Use Lukewarm Water**\nHot water damages hair cuticles. Rinse with cool water for extra shine.\n\n**4. Choose Sulfate-Free Shampoo**\nSulfates are harsh detergents that strip moisture from your hair.\n\n**5. Always Use Conditioner**\nApply from mid-lengths to ends, avoiding the scalp.\n\n**6. Deep Condition Weekly**\nUse a hair mask or deep conditioner once a week for intense hydration.\n\n**7. Limit Heat Styling**\nAir-dry when possible. Always use heat protectant before blow-drying or styling.\n\n**8. Get Regular Trims**\nTrim every 6-8 weeks to prevent split ends.\n\n**9. Protect Hair While Sleeping**\nUse a silk or satin pillowcase to reduce friction and breakage.\n\n**10. Eat a Balanced Diet**\nBiotin, vitamin E, and omega-3 fatty acids promote healthy hair growth.\n\n**Natural Remedies:**\n- Coconut oil mask once a week\n- Aloe vera gel for scalp health\n- Rice water rinse for shine',
+                    createdAt: new Date().toISOString()
+                },
+                'skincare-ingredients-guide': {
+                    id: '4',
+                    title: 'Skincare Ingredients Guide: What Works for Your Skin Type',
+                    slug: 'skincare-ingredients-guide',
+                    imageUrl: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=800',
+                    shortDesc: 'Understanding retinol, vitamin C, niacinamide, and more.',
+                    category: 'skincare',
+                    fullContent: 'Navigating skincare ingredients can be overwhelming. Here\'s your complete guide to what works and why.\n\n**For Anti-Aging:**\n- **Retinol** - The gold standard for reducing fine lines and wrinkles\n- **Vitamin C** - Brightens skin and boosts collagen production\n- **Peptides** - Support skin barrier and firmness\n\n**For Hydration:**\n- **Hyaluronic Acid** - Holds 1000x its weight in water\n- **Glycerin** - A humectant that draws moisture to skin\n- **Squalane** - Mimics skin\'s natural oils\n\n**For Acne-Prone Skin:**\n- **Salicylic Acid** - Unclogs pores and reduces inflammation\n- **Benzoyl Peroxide** - Kills acne-causing bacteria\n- **Niacinamide** - Reduces redness and regulates oil\n\n**For Hyperpigmentation:**\n- **Vitamin C** - Brightens dark spots\n- **Kojic Acid** - Natural skin lightener\n- **Azelaic Acid** - Treats both acne and pigmentation\n\n**For Sensitive Skin:**\n- **Centella Asiatica** - Soothes inflammation\n- **Ceramides** - Repairs skin barrier\n- **Oat Extract** - Calms irritation\n\n**How to Layer Ingredients:**\n1. Cleanse\n2. Toner\n3. Vitamin C (morning) / Retinol (night)\n4. Serums (thinnest to thickest)\n5. Moisturizer\n6. Sunscreen (morning only)\n\n**Never Mix:**\n- Retinol + AHAs/BHAs\n- Vitamin C + Niacinamide (can cause flushing in some skin types)\n- Multiple exfoliants together',
+                    createdAt: new Date().toISOString()
+                },
+                '5-minute-hairstyles-busy-mornings': {
+                    id: '5',
+                    title: '5-Minute Hairstyles for Busy Mornings',
+                    slug: '5-minute-hairstyles-busy-mornings',
+                    imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=800',
+                    shortDesc: 'Quick and easy hairstyles that look professional and stylish.',
+                    category: 'haircare',
+                    fullContent: 'Short on time? These 5-minute hairstyles will save your busy mornings.\n\n**1. The Effortless Low Bun**\n- Gather hair at the nape of your neck\n- Twist and wrap into a bun\n- Secure with bobby pins\n- Pull out a few face-framing pieces\n\n**2. Sleek High Ponytail**\n- Brush hair smooth\n- Gather at crown\n- Secure with elastic\n- Wrap a small section around the elastic\n\n**3. Half-Up, Half-Down**\n- Take top section of hair\n- Twist or braid\n- Secure with clip or elastic\n- Add volume by gently pulling layers\n\n**4. The Claw Clip Style**\n- Twist hair upward\n- Secure with claw clip\n- Let ends fan out for a chic look\n\n**5. French Twist in Seconds**\n- Gather hair to one side\n- Twist upward\n- Pin in place\n\n**6. Slicked Back Wet Look**\n- Apply gel to damp hair\n- Comb back\n- Secure in low ponytail or bun\n\n**7. Top Knot**\n- Flip head upside down\n- Gather hair at crown\n- Twist into a tight bun\n\n**Pro Tips:**\n- Prep hair with dry shampoo the night before\n- Use a silk scrunchie to prevent creases\n- Keep accessories like claw clips and headbands handy',
+                    createdAt: new Date().toISOString()
+                },
+                'clean-beauty-guide': {
+                    id: '6',
+                    title: 'Clean Beauty: What It Means and Why It Matters',
+                    slug: 'clean-beauty-guide',
+                    imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc8ef1af?w=800',
+                    shortDesc: 'Everything you need to know about non-toxic beauty products.',
+                    category: 'lifestyle',
+                    fullContent: 'Clean beauty is more than a trend - it\'s a movement toward transparency and safety in cosmetics.\n\n**What Is Clean Beauty?**\nClean beauty products are formulated without ingredients that are known or suspected to harm human health. This includes avoiding toxins, carcinogens, and endocrine disruptors.\n\n**Ingredients to Avoid:**\n- Parabens (preservatives linked to hormone disruption)\n- Phthalates (found in fragrances, linked to reproductive issues)\n- Sulfates (SLS/SLES - harsh detergents)\n- Formaldehyde-releasing preservatives\n- Oxybenzone (sunscreen ingredient harmful to coral reefs)\n- PEG compounds (often contaminated with toxins)\n- Synthetic fragrances (can contain phthalates)\n\n**Clean Beauty Certifications to Look For:**\n- EWG Verified\n- Leaping Bunny (cruelty-free)\n- COSMOS Organic\n- Made Safe\n\n**Best Clean Beauty Brands:**\nWe recommend researching brands that are transparent about their ingredients and manufacturing processes.\n\n**How to Transition to Clean Beauty:**\n1. Start with products you use daily (moisturizer, cleanser)\n2. Replace as you run out - no need to throw everything away\n3. Use apps like Think Dirty or EWG Healthy Living to scan products\n4. Focus on leave-on products first (serums, moisturizers)\n5. Don\'t fall for greenwashing - read ingredient labels yourself\n\n**The Bottom Line:**\nClean beauty is about making informed choices. You don\'t need to be perfect - small changes add up over time.',
+                    createdAt: new Date().toISOString()
+                }
+            };
+            
+            const article = demoArticles[slug];
+            if (!article) {
+                return res.status(404).json({ error: 'Article not found' });
+            }
+            return res.json(article);
+        }
         
-        if (!article) {
+        const articlesRef = db.collection('articles');
+        const snapshot = await articlesRef.where('slug', '==', slug).limit(1).get();
+        
+        if (snapshot.empty) {
             return res.status(404).json({ error: 'Article not found' });
         }
         
-        // Ensure fullContent exists
-        if (!article.fullContent) {
-            article.fullContent = article.content || 'Content for this article is being prepared. Please check back soon!';
-        }
-        
+        let article = null;
+        snapshot.forEach(doc => {
+            article = { id: doc.id, ...doc.data() };
+        });
         res.json(article);
     } catch (error) {
+        console.error('Error fetching article:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ PRODUCTS API ============
+// Get all affiliate products (BEAUTY PRODUCTS)
 app.get('/api/products', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
-            return res.json([]);
+            const productsRef = db.collection('affiliateLinks');
+            const snapshot = await productsRef.orderBy('createdAt', 'desc').get();
+            const products = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                products.push({
+                    id: doc.id,
+                    name: data.name,
+                    imageUrl: data.imageUrl,
+                    price: data.price,
+                    description: data.description,
+                    redirectUrl: data.redirectUrl
+                });
+            });
+            if (products.length === 0) {
+                // Demo beauty products
+                return res.json([
+                    {
+                        id: '1',
+                        name: 'Jade Roller Set',
+                        imageUrl: 'https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=300',
+                        price: '$19.99',
+                        description: 'Real jade roller for facial massage and lymphatic drainage.',
+                        redirectUrl: '#'
+                    },
+                    {
+                        id: '2',
+                        name: 'Silk Pillowcase Set',
+                        imageUrl: 'https://images.unsplash.com/photo-1534224039826-c7a0eda0e6b3?w=300',
+                        price: '$29.99',
+                        description: '100% mulberry silk pillowcase for hair and skin benefits.',
+                        redirectUrl: '#'
+                    }
+                ]);
+            }
+            return res.json(products);
         }
+        
         const snapshot = await db.collection('affiliateLinks').orderBy('createdAt', 'desc').get();
         const products = [];
         snapshot.forEach(doc => {
             const data = doc.data();
             products.push({
                 id: doc.id,
-                name: data.name || '',
-                imageUrl: data.imageUrl || '',
-                price: data.price || '',
-                description: data.description || '',
-                redirectUrl: data.redirectUrl || ''
+                name: data.name,
+                imageUrl: data.imageUrl,
+                price: data.price,
+                description: data.description,
+                redirectUrl: data.redirectUrl
             });
         });
         res.json(products);
     } catch (error) {
+        console.error('Error fetching products:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ SUBSCRIPTION API ============
+// Check subscription status - LIFETIME (no expiry)
 app.post('/api/check-subscription', async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email || !isFirebaseInitialized) {
-            return res.json({ isActive: false });
+        if (!email) {
+            return res.status(400).json({ error: 'Email required' });
         }
-        const snapshot = await db.collection('subscribers').where('email', '==', email).limit(1).get();
-        let isActive = false;
-        snapshot.forEach(doc => { isActive = doc.data().isActive === true; });
-        res.json({ isActive });
+        
+        if (!isFirebaseInitialized) {
+            const subscribersRef = db.collection('subscribers');
+            const snapshot = await subscribersRef.where('email', '==', email).limit(1).get();
+            
+            if (snapshot.empty) {
+                return res.json({ isActive: false, isLifetime: false });
+            }
+            
+            let subscriber = null;
+            snapshot.forEach(doc => {
+                subscriber = { id: doc.id, ...doc.data() };
+            });
+            
+            return res.json({ 
+                isActive: subscriber.isActive === true,
+                isLifetime: true
+            });
+        }
+        
+        const subscriberRef = db.collection('subscribers');
+        const snapshot = await subscriberRef.where('email', '==', email).limit(1).get();
+        
+        if (snapshot.empty) {
+            return res.json({ isActive: false, isLifetime: false });
+        }
+        
+        let subscriber = null;
+        snapshot.forEach(doc => {
+            subscriber = { id: doc.id, ...doc.data() };
+        });
+        
+        const isActive = subscriber.isActive === true;
+        
+        res.json({ 
+            isActive: isActive,
+            isLifetime: true,
+            message: isActive ? "Active lifetime subscription" : "No active subscription"
+        });
     } catch (error) {
-        res.json({ isActive: false });
+        console.error('Error checking subscription:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
+// Get ebooks (BEAUTY EBOOKS - requires active subscription)
 app.post('/api/ebooks', async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email || !isFirebaseInitialized) {
-            return res.status(403).json({ error: 'Subscription required' });
+        if (!email) {
+            return res.status(400).json({ error: 'Email required' });
+        }
+        
+        if (!isFirebaseInitialized) {
+            const subscribersRef = db.collection('subscribers');
+            const subSnapshot = await subscribersRef.where('email', '==', email).limit(1).get();
+            
+            let isActive = false;
+            if (!subSnapshot.empty) {
+                subSnapshot.forEach(doc => {
+                    isActive = doc.data().isActive === true;
+                });
+            }
+            
+            if (!isActive && email !== 'demo@example.com') {
+                return res.status(403).json({ error: 'Active subscription required' });
+            }
+            
+            const ebooksRef = db.collection('ebooks');
+            const ebookSnapshot = await ebooksRef.orderBy('createdAt', 'desc').get();
+            const ebooks = [];
+            ebookSnapshot.forEach(doc => {
+                const data = doc.data();
+                ebooks.push({
+                    id: doc.id,
+                    name: data.name,
+                    imageUrl: data.imageUrl,
+                    pdfUrl: data.pdfUrl
+                });
+            });
+            
+            if (ebooks.length === 0) {
+                // Demo beauty ebooks
+                return res.json([
+                    {
+                        id: '1',
+                        name: 'The Complete Skincare Guide',
+                        imageUrl: 'https://images.unsplash.com/photo-1571781926291-c4771fd1fcf8?w=300',
+                        pdfUrl: '#'
+                    },
+                    {
+                        id: '2',
+                        name: 'Natural Beauty Recipes',
+                        imageUrl: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=300',
+                        pdfUrl: '#'
+                    }
+                ]);
+            }
+            return res.json(ebooks);
         }
         
         const subSnapshot = await db.collection('subscribers').where('email', '==', email).limit(1).get();
@@ -225,10 +673,12 @@ app.post('/api/ebooks', async (req, res) => {
             return res.status(403).json({ error: 'Subscription required' });
         }
         
-        let isActive = false;
-        subSnapshot.forEach(doc => { isActive = doc.data().isActive === true; });
+        let subscriber = null;
+        subSnapshot.forEach(doc => {
+            subscriber = { id: doc.id, ...doc.data() };
+        });
         
-        if (!isActive) {
+        if (!subscriber.isActive) {
             return res.status(403).json({ error: 'Active subscription required' });
         }
         
@@ -238,164 +688,426 @@ app.post('/api/ebooks', async (req, res) => {
             const data = doc.data();
             ebooks.push({
                 id: doc.id,
-                name: data.name || '',
-                imageUrl: data.imageUrl || '',
-                pdfUrl: data.pdfUrl || ''
+                name: data.name,
+                imageUrl: data.imageUrl,
+                pdfUrl: data.pdfUrl
             });
         });
         res.json(ebooks);
     } catch (error) {
+        console.error('Error fetching ebooks:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// Subscribe user (newsletter - not premium)
 app.post('/api/subscribe', async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email || !isFirebaseInitialized) {
-            return res.json({ message: 'Email registered' });
+        if (!email) {
+            return res.status(400).json({ error: 'Email required' });
         }
+        
+        if (!isFirebaseInitialized) {
+            const existing = await db.collection('subscribers').where('email', '==', email).get();
+            if (!existing.empty) {
+                return res.json({ message: 'Email already registered' });
+            }
+            
+            await db.collection('subscribers').add({
+                email: email,
+                isActive: false,
+                subscribedAt: new Date().toISOString()
+            });
+            
+            return res.json({ success: true, message: 'Subscribed successfully! Contact admin for premium activation.' });
+        }
+        
         const existing = await db.collection('subscribers').where('email', '==', email).get();
-        if (!existing.empty) return res.json({ message: 'Email already registered' });
-        await db.collection('subscribers').add({ email, isActive: false, subscribedAt: new Date().toISOString() });
-        res.json({ success: true, message: 'Subscribed!' });
-    } catch (error) {
-        res.json({ success: true, message: 'Subscribed!' });
-    }
-});
-
-// ============ USER AUTH ============
-app.post('/api/signup', async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
-        if (!email || !password || !name) return res.status(400).json({ error: 'All fields required' });
-        if (password.length < 6) return res.status(400).json({ error: 'Password must be 6+ characters' });
-        if (!isFirebaseInitialized) return res.status(503).json({ error: 'Service unavailable' });
+        if (!existing.empty) {
+            return res.json({ message: 'Email already registered' });
+        }
         
-        const usersRef = db.collection('users');
-        const existing = await usersRef.where('email', '==', email).limit(1).get();
-        if (!existing.empty) return res.status(400).json({ error: 'User already exists' });
-        
-        const userRecord = await auth.createUser({ email, password, displayName: name });
-        const hashedPassword = await bcrypt.hash(password, 10);
-        
-        await db.collection('users').doc(userRecord.uid).set({
-            name, email, password: hashedPassword,
-            createdAt: new Date().toISOString(),
-            uid: userRecord.uid
+        await db.collection('subscribers').add({
+            email: email,
+            isActive: false,
+            subscribedAt: new Date().toISOString()
         });
         
-        await db.collection('subscribers').add({ email, name, isActive: false, subscribedAt: new Date().toISOString() });
-        
-        res.json({ success: true, message: 'Account created!' });
+        res.json({ success: true, message: 'Subscribed successfully! Contact admin for premium activation.' });
     } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-});
-
-app.post('/api/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-        if (!isFirebaseInitialized) return res.status(503).json({ error: 'Service unavailable' });
-        
-        const usersRef = db.collection('users');
-        const snapshot = await usersRef.where('email', '==', email).limit(1).get();
-        if (snapshot.empty) return res.status(401).json({ error: 'Invalid credentials' });
-        
-        let user = null, userId = null;
-        snapshot.forEach(doc => { user = doc.data(); userId = doc.id; });
-        
-        const isValid = await bcrypt.compare(password, user.password);
-        if (!isValid) return res.status(401).json({ error: 'Invalid credentials' });
-        
-        const token = jwt.sign({ email: user.email, name: user.name, uid: userId }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ success: true, token, email: user.email, name: user.name });
-    } catch (error) {
+        console.error('Error subscribing:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ ADMIN API ============
+// ============ ADMIN LOGIN ROUTE ============
 app.post('/api/admin/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        if (email !== process.env.ADMIN_EMAIL || password !== process.env.ADMIN_PASSWORD) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+        
+        console.log('Admin login attempt:', { email, hasPassword: !!password });
+        
+        if (email !== process.env.ADMIN_EMAIL) {
+            console.log('Admin login failed: Invalid email');
+            return res.status(401).json({ error: 'Invalid email or password' });
         }
-        const token = jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ success: true, token, email });
+        
+        const adminPassword = process.env.ADMIN_PASSWORD;
+        
+        if (!adminPassword) {
+            console.log('Admin login failed: No ADMIN_PASSWORD in environment');
+            return res.status(500).json({ error: 'Server configuration error - Missing password' });
+        }
+        
+        const isValid = (password === adminPassword);
+        
+        if (!isValid) {
+            console.log('Admin login failed: Invalid password');
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        
+        const token = jwt.sign(
+            { email, role: 'admin' },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+        
+        console.log('Admin login successful:', email);
+        res.json({ 
+            success: true,
+            token, 
+            email,
+            message: 'Login successful'
+        });
     } catch (error) {
+        console.error('Admin login error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/admin/verify', verifyAdmin, (req, res) => { res.json({ valid: true }); });
+// ============ ADMIN ROUTES (Protected) ============
+
+// Verify admin token
+app.get('/api/admin/verify', verifyAdmin, async (req, res) => {
+    res.json({ valid: true, email: req.admin.email });
+});
+
+// Get all ebooks (admin)
 app.get('/api/admin/ebooks', verifyAdmin, async (req, res) => {
-    const snapshot = await db.collection('ebooks').orderBy('createdAt', 'desc').get();
-    const ebooks = []; snapshot.forEach(doc => ebooks.push({ id: doc.id, ...doc.data() }));
-    res.json(ebooks);
+    try {
+        if (!isFirebaseInitialized) {
+            const ebooksRef = db.collection('ebooks');
+            const snapshot = await ebooksRef.orderBy('createdAt', 'desc').get();
+            const ebooks = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                ebooks.push({
+                    id: doc.id,
+                    name: data.name,
+                    imageUrl: data.imageUrl,
+                    pdfUrl: data.pdfUrl,
+                    createdAt: data.createdAt
+                });
+            });
+            return res.json(ebooks);
+        }
+        
+        const snapshot = await db.collection('ebooks').orderBy('createdAt', 'desc').get();
+        const ebooks = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            ebooks.push({
+                id: doc.id,
+                name: data.name,
+                imageUrl: data.imageUrl,
+                pdfUrl: data.pdfUrl,
+                createdAt: data.createdAt
+            });
+        });
+        res.json(ebooks);
+    } catch (error) {
+        console.error('Error fetching ebooks:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Add article (WITH CATEGORY - beauty categories)
 app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
-    const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
-    const article = {
-        title, slug: slug.toLowerCase().trim(), imageUrl, shortDesc, fullContent,
-        category: category || 'all', createdAt: new Date().toISOString()
-    };
-    const docRef = await db.collection('articles').add(article);
-    res.json({ id: docRef.id, ...article });
+    try {
+        const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
+        
+        if (!title || !slug || !imageUrl || !shortDesc || !fullContent) {
+            return res.status(400).json({ error: 'All fields required' });
+        }
+        
+        const article = {
+            title,
+            slug,
+            imageUrl,
+            shortDesc,
+            fullContent,
+            category: category || 'all',
+            createdAt: new Date().toISOString()
+        };
+        
+        if (!isFirebaseInitialized) {
+            const docRef = await db.collection('articles').add(article);
+            return res.json({ id: docRef.id, ...article });
+        }
+        
+        const docRef = await db.collection('articles').add(article);
+        res.json({ id: docRef.id, ...article });
+    } catch (error) {
+        console.error('Error adding article:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Update article
 app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
-    const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
-    const updateData = { title, imageUrl, shortDesc, fullContent, category: category || 'all', updatedAt: new Date().toISOString() };
-    if (slug) updateData.slug = slug.toLowerCase().trim();
-    await db.collection('articles').doc(req.params.id).update(updateData);
-    res.json({ success: true });
+    try {
+        const { id } = req.params;
+        const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
+        
+        if (!isFirebaseInitialized) {
+            await db.collection('articles').doc(id).update({
+                title, slug, imageUrl, shortDesc, fullContent,
+                category: category || 'all',
+                updatedAt: new Date().toISOString()
+            });
+            return res.json({ success: true });
+        }
+        
+        await db.collection('articles').doc(id).update({
+            title, slug, imageUrl, shortDesc, fullContent,
+            category: category || 'all',
+            updatedAt: new Date().toISOString()
+        });
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error updating article:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Delete article
 app.delete('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
-    await db.collection('articles').doc(req.params.id).delete();
-    res.json({ success: true });
+    try {
+        const { id } = req.params;
+        
+        if (!isFirebaseInitialized) {
+            await db.collection('articles').doc(id).delete();
+            return res.json({ success: true });
+        }
+        
+        await db.collection('articles').doc(id).delete();
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting article:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Add ebook
 app.post('/api/admin/ebooks', verifyAdmin, async (req, res) => {
-    const { name, imageUrl, pdfUrl } = req.body;
-    const ebook = { name, imageUrl, pdfUrl, createdAt: new Date().toISOString() };
-    const docRef = await db.collection('ebooks').add(ebook);
-    res.json({ id: docRef.id, ...ebook });
+    try {
+        const { name, imageUrl, pdfUrl } = req.body;
+        
+        if (!name || !imageUrl || !pdfUrl) {
+            return res.status(400).json({ error: 'All fields required' });
+        }
+        
+        const ebook = {
+            name,
+            imageUrl,
+            pdfUrl,
+            createdAt: new Date().toISOString()
+        };
+        
+        if (!isFirebaseInitialized) {
+            const docRef = await db.collection('ebooks').add(ebook);
+            return res.json({ id: docRef.id, ...ebook });
+        }
+        
+        const docRef = await db.collection('ebooks').add(ebook);
+        res.json({ id: docRef.id, ...ebook });
+    } catch (error) {
+        console.error('Error adding ebook:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Delete ebook
 app.delete('/api/admin/ebooks/:id', verifyAdmin, async (req, res) => {
-    await db.collection('ebooks').doc(req.params.id).delete();
-    res.json({ success: true });
+    try {
+        const { id } = req.params;
+        
+        if (!isFirebaseInitialized) {
+            await db.collection('ebooks').doc(id).delete();
+            return res.json({ success: true });
+        }
+        
+        await db.collection('ebooks').doc(id).delete();
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting ebook:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Add affiliate product
 app.post('/api/admin/products', verifyAdmin, async (req, res) => {
-    const { name, imageUrl, price, description, redirectUrl } = req.body;
-    const product = { name, imageUrl, price, description, redirectUrl, createdAt: new Date().toISOString() };
-    const docRef = await db.collection('affiliateLinks').add(product);
-    res.json({ id: docRef.id, ...product });
+    try {
+        const { name, imageUrl, price, description, redirectUrl } = req.body;
+        
+        const product = {
+            name,
+            imageUrl,
+            price,
+            description,
+            redirectUrl,
+            createdAt: new Date().toISOString()
+        };
+        
+        if (!isFirebaseInitialized) {
+            const docRef = await db.collection('affiliateLinks').add(product);
+            return res.json({ id: docRef.id, ...product });
+        }
+        
+        const docRef = await db.collection('affiliateLinks').add(product);
+        res.json({ id: docRef.id, ...product });
+    } catch (error) {
+        console.error('Error adding product:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Delete product
 app.delete('/api/admin/products/:id', verifyAdmin, async (req, res) => {
-    await db.collection('affiliateLinks').doc(req.params.id).delete();
-    res.json({ success: true });
+    try {
+        const { id } = req.params;
+        
+        if (!isFirebaseInitialized) {
+            await db.collection('affiliateLinks').doc(id).delete();
+            return res.json({ success: true });
+        }
+        
+        await db.collection('affiliateLinks').doc(id).delete();
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting product:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Get all subscribers
 app.get('/api/admin/subscribers', verifyAdmin, async (req, res) => {
-    const snapshot = await db.collection('subscribers').orderBy('subscribedAt', 'desc').get();
-    const subscribers = []; snapshot.forEach(doc => subscribers.push({ id: doc.id, ...doc.data() }));
-    res.json(subscribers);
+    try {
+        if (!isFirebaseInitialized) {
+            const snapshot = await db.collection('subscribers').orderBy('subscribedAt', 'desc').get();
+            const subscribers = [];
+            snapshot.forEach(doc => {
+                subscribers.push({ id: doc.id, ...doc.data() });
+            });
+            return res.json(subscribers);
+        }
+        
+        const snapshot = await db.collection('subscribers').orderBy('subscribedAt', 'desc').get();
+        const subscribers = [];
+        snapshot.forEach(doc => {
+            subscribers.push({ id: doc.id, ...doc.data() });
+        });
+        res.json(subscribers);
+    } catch (error) {
+        console.error('Error fetching subscribers:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Update subscriber status - LIFETIME
 app.put('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
-    await db.collection('subscribers').doc(req.params.id).update({
-        isActive: req.body.isActive === true,
-        updatedAt: new Date().toISOString()
-    });
-    res.json({ success: true });
+    try {
+        const { id } = req.params;
+        const { isActive } = req.body;
+        
+        const updateData = { 
+            isActive: isActive === true,
+            updatedAt: new Date().toISOString()
+        };
+        
+        if (!isFirebaseInitialized) {
+            await db.collection('subscribers').doc(id).update(updateData);
+            return res.json({ success: true });
+        }
+        
+        await db.collection('subscribers').doc(id).update(updateData);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error updating subscriber:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
+
+// Delete subscriber
 app.delete('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
-    await db.collection('subscribers').doc(req.params.id).delete();
-    res.json({ success: true });
+    try {
+        const { id } = req.params;
+        
+        if (!isFirebaseInitialized) {
+            await db.collection('subscribers').doc(id).delete();
+            return res.json({ success: true });
+        }
+        
+        await db.collection('subscribers').doc(id).delete();
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting subscriber:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// ============ 404 FOR API ============
-app.all('/api/*', (req, res) => { res.status(404).json({ error: 'API endpoint not found' }); });
+// ============ CATCH ALL ROUTE FOR DEBUGGING ============
+app.all('/api/*', (req, res) => {
+    console.log(`Route not found: ${req.method} ${req.url}`);
+    res.status(404).json({ 
+        error: 'API endpoint not found',
+        method: req.method,
+        url: req.url,
+        site: 'Beauty Bloom API',
+        availableEndpoints: [
+            'POST /api/signup',
+            'POST /api/login',
+            'POST /api/admin/login',
+            'GET /api/health',
+            'GET /api/articles',
+            'GET /api/article/:slug',
+            'GET /api/products',
+            'POST /api/check-subscription',
+            'POST /api/ebooks',
+            'POST /api/subscribe',
+            'GET /api/admin/verify',
+            'GET /api/admin/ebooks',
+            'GET /api/admin/subscribers',
+            'POST /api/admin/articles',
+            'PUT /api/admin/articles/:id',
+            'DELETE /api/admin/articles/:id',
+            'POST /api/admin/ebooks',
+            'DELETE /api/admin/ebooks/:id',
+            'POST /api/admin/products',
+            'DELETE /api/admin/products/:id',
+            'PUT /api/admin/subscribers/:id',
+            'DELETE /api/admin/subscribers/:id'
+        ]
+    });
+});
 
-// ============ START ============
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`🌸 Beauty Bloom Server running on port ${PORT}`);
+    console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
+    console.log(`📝 User signup: POST http://localhost:${PORT}/api/signup`);
+    console.log(`🔑 User login: POST http://localhost:${PORT}/api/login`);
+});
