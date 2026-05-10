@@ -1,0 +1,24 @@
+{
+  "name": "beauty-bloom-backend",
+  "version": "1.0.0",
+  "description": "Backend for Beauty Bloom - Beauty & Lifestyle Blog with admin panel",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "firebase-admin": "^11.11.0",
+    "cors": "^2.8.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["beauty", "lifestyle", "blog", "admin-panel", "firebase", "skincare", "makeup", "haircare"],
+  "author": "Beauty Bloom",
+  "license": "MIT"
+}
