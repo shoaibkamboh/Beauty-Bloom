@@ -3,6 +3,7 @@ const admin = require('firebase-admin');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const path = require('path');
 
 const app = express();
 
@@ -16,13 +17,61 @@ app.use(cors({
 app.options('*', cors());
 app.use(express.json());
 
+// ============ SERVE STATIC HTML FILES ============
+// This is the CRITICAL FIX - serve HTML files from the current directory
+app.use(express.static(__dirname));
+
+// Handle article routes - serve article.html
+app.get('/article/:slug', (req, res) => {
+    res.sendFile(path.join(__dirname, 'article.html'));
+});
+
+// Handle other page routes
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'login.html'));
+});
+
+app.get('/signup', (req, res) => {
+    res.sendFile(path.join(__dirname, 'signup.html'));
+});
+
+app.get('/products', (req, res) => {
+    res.sendFile(path.join(__dirname, 'products.html'));
+});
+
+app.get('/ebook', (req, res) => {
+    res.sendFile(path.join(__dirname, 'ebook.html'));
+});
+
+app.get('/subscription', (req, res) => {
+    res.sendFile(path.join(__dirname, 'subscription.html'));
+});
+
+app.get('/admin-login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin-login.html'));
+});
+
+app.get('/admin-panel', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin-panel.html'));
+});
+
 // ============ FIREBASE INITIALIZATION ============
 let db = null;
 let auth = null;
 let isFirebaseInitialized = false;
 
-try {
-    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+const hasFirebaseCreds = process.env.FIREBASE_PROJECT_ID && 
+                         process.env.FIREBASE_PRIVATE_KEY && 
+                         process.env.FIREBASE_CLIENT_EMAIL;
+
+if (!hasFirebaseCreds) {
+    console.error('❌ Missing Firebase credentials');
+} else {
+    try {
         const serviceAccount = {
             projectId: process.env.FIREBASE_PROJECT_ID,
             privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
@@ -37,11 +86,9 @@ try {
         auth = admin.auth();
         isFirebaseInitialized = true;
         console.log('✅ Firebase initialized');
-    } else {
-        console.log('⚠️ Firebase credentials missing');
+    } catch (error) {
+        console.error('❌ Firebase error:', error.message);
     }
-} catch (error) {
-    console.error('❌ Firebase init error:', error.message);
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'beauty-bloom-secret';
@@ -65,7 +112,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', firebase: isFirebaseInitialized });
 });
 
-// ============ ARTICLES ============
+// ============ ARTICLES API ============
 app.get('/api/articles', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
@@ -91,7 +138,7 @@ app.get('/api/articles', async (req, res) => {
     }
 });
 
-// ============ SINGLE ARTICLE ============
+// ============ SINGLE ARTICLE API ============
 app.get('/api/article/:slug', async (req, res) => {
     try {
         const slug = req.params.slug.toLowerCase();
@@ -114,13 +161,18 @@ app.get('/api/article/:slug', async (req, res) => {
             return res.status(404).json({ error: 'Article not found' });
         }
         
+        // Ensure fullContent exists
+        if (!article.fullContent) {
+            article.fullContent = article.content || 'Content for this article is being prepared. Please check back soon!';
+        }
+        
         res.json(article);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// ============ PRODUCTS ============
+// ============ PRODUCTS API ============
 app.get('/api/products', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
@@ -145,7 +197,7 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// ============ SUBSCRIPTION ============
+// ============ SUBSCRIPTION API ============
 app.post('/api/check-subscription', async (req, res) => {
     try {
         const { email } = req.body;
@@ -161,7 +213,6 @@ app.post('/api/check-subscription', async (req, res) => {
     }
 });
 
-// ============ EBOOKS ============
 app.post('/api/ebooks', async (req, res) => {
     try {
         const { email } = req.body;
@@ -265,7 +316,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ============ ADMIN ============
+// ============ ADMIN API ============
 app.post('/api/admin/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -280,13 +331,11 @@ app.post('/api/admin/login', async (req, res) => {
 });
 
 app.get('/api/admin/verify', verifyAdmin, (req, res) => { res.json({ valid: true }); });
-
 app.get('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     const snapshot = await db.collection('ebooks').orderBy('createdAt', 'desc').get();
     const ebooks = []; snapshot.forEach(doc => ebooks.push({ id: doc.id, ...doc.data() }));
     res.json(ebooks);
 });
-
 app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
     const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
     const article = {
@@ -296,7 +345,6 @@ app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
     const docRef = await db.collection('articles').add(article);
     res.json({ id: docRef.id, ...article });
 });
-
 app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
     const updateData = { title, imageUrl, shortDesc, fullContent, category: category || 'all', updatedAt: new Date().toISOString() };
@@ -304,42 +352,35 @@ app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     await db.collection('articles').doc(req.params.id).update(updateData);
     res.json({ success: true });
 });
-
 app.delete('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     await db.collection('articles').doc(req.params.id).delete();
     res.json({ success: true });
 });
-
 app.post('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     const { name, imageUrl, pdfUrl } = req.body;
     const ebook = { name, imageUrl, pdfUrl, createdAt: new Date().toISOString() };
     const docRef = await db.collection('ebooks').add(ebook);
     res.json({ id: docRef.id, ...ebook });
 });
-
 app.delete('/api/admin/ebooks/:id', verifyAdmin, async (req, res) => {
     await db.collection('ebooks').doc(req.params.id).delete();
     res.json({ success: true });
 });
-
 app.post('/api/admin/products', verifyAdmin, async (req, res) => {
     const { name, imageUrl, price, description, redirectUrl } = req.body;
     const product = { name, imageUrl, price, description, redirectUrl, createdAt: new Date().toISOString() };
     const docRef = await db.collection('affiliateLinks').add(product);
     res.json({ id: docRef.id, ...product });
 });
-
 app.delete('/api/admin/products/:id', verifyAdmin, async (req, res) => {
     await db.collection('affiliateLinks').doc(req.params.id).delete();
     res.json({ success: true });
 });
-
 app.get('/api/admin/subscribers', verifyAdmin, async (req, res) => {
     const snapshot = await db.collection('subscribers').orderBy('subscribedAt', 'desc').get();
     const subscribers = []; snapshot.forEach(doc => subscribers.push({ id: doc.id, ...doc.data() }));
     res.json(subscribers);
 });
-
 app.put('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
     await db.collection('subscribers').doc(req.params.id).update({
         isActive: req.body.isActive === true,
@@ -347,13 +388,12 @@ app.put('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
     });
     res.json({ success: true });
 });
-
 app.delete('/api/admin/subscribers/:id', verifyAdmin, async (req, res) => {
     await db.collection('subscribers').doc(req.params.id).delete();
     res.json({ success: true });
 });
 
-// ============ 404 ============
+// ============ 404 FOR API ============
 app.all('/api/*', (req, res) => { res.status(404).json({ error: 'API endpoint not found' }); });
 
 // ============ START ============
