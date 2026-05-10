@@ -106,6 +106,14 @@ try {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'beauty-blog-secret-key-change-in-production-2026';
 
+// ============ HELPER FUNCTIONS ============
+function generateSlug(title) {
+    return title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
 // ============ MIDDLEWARE ============
 const verifyAdmin = async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
@@ -392,24 +400,34 @@ app.get('/api/articles', async (req, res) => {
     }
 });
 
-// Get single article by slug
+// Get single article by slug (CASE-INSENSITIVE FIX)
 app.get('/api/article/:slug', async (req, res) => {
     try {
-        const slug = req.params.slug;
+        let slug = req.params.slug;
+        
+        // Clean and normalize the slug
+        slug = slug.toLowerCase().trim();
+        
+        console.log('Searching for article with slug:', slug);
         
         if (!isFirebaseInitialized) {
+            // Demo mode - check all articles (case-insensitive)
             const articlesRef = db.collection('articles');
-            const snapshot = await articlesRef.where('slug', '==', slug).limit(1).get();
+            const snapshot = await articlesRef.get();
             
-            if (!snapshot.empty) {
-                let article = null;
-                snapshot.forEach(doc => {
-                    article = { id: doc.id, ...doc.data() };
-                });
-                if (article) return res.json(article);
+            let article = null;
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.slug && data.slug.toLowerCase() === slug) {
+                    article = { id: doc.id, ...data };
+                }
+            });
+            
+            if (article) {
+                return res.json(article);
             }
             
-            // Demo beauty articles content
+            // Demo beauty articles content with case-insensitive lookup
             const demoArticles = {
                 'korean-skincare-routine-glass-skin': {
                     id: '1',
@@ -470,27 +488,45 @@ app.get('/api/article/:slug', async (req, res) => {
                     category: 'lifestyle',
                     fullContent: 'Clean beauty is more than a trend - it\'s a movement toward transparency and safety in cosmetics.\n\n**What Is Clean Beauty?**\nClean beauty products are formulated without ingredients that are known or suspected to harm human health. This includes avoiding toxins, carcinogens, and endocrine disruptors.\n\n**Ingredients to Avoid:**\n- Parabens (preservatives linked to hormone disruption)\n- Phthalates (found in fragrances, linked to reproductive issues)\n- Sulfates (SLS/SLES - harsh detergents)\n- Formaldehyde-releasing preservatives\n- Oxybenzone (sunscreen ingredient harmful to coral reefs)\n- PEG compounds (often contaminated with toxins)\n- Synthetic fragrances (can contain phthalates)\n\n**Clean Beauty Certifications to Look For:**\n- EWG Verified\n- Leaping Bunny (cruelty-free)\n- COSMOS Organic\n- Made Safe\n\n**Best Clean Beauty Brands:**\nWe recommend researching brands that are transparent about their ingredients and manufacturing processes.\n\n**How to Transition to Clean Beauty:**\n1. Start with products you use daily (moisturizer, cleanser)\n2. Replace as you run out - no need to throw everything away\n3. Use apps like Think Dirty or EWG Healthy Living to scan products\n4. Focus on leave-on products first (serums, moisturizers)\n5. Don\'t fall for greenwashing - read ingredient labels yourself\n\n**The Bottom Line:**\nClean beauty is about making informed choices. You don\'t need to be perfect - small changes add up over time.',
                     createdAt: new Date().toISOString()
+                },
+                'how-to-get-glass-skin-naturally': {
+                    id: '7',
+                    title: 'How to Get Glass Skin Naturally',
+                    slug: 'how-to-get-glass-skin-naturally',
+                    imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=800',
+                    shortDesc: 'Natural remedies and routines to achieve that glass skin glow.',
+                    category: 'skincare',
+                    fullContent: 'Glass skin - that ultra-hydrated, poreless, glowing complexion - can be achieved naturally with the right routine!\n\n**What is Glass Skin?**\nGlass skin refers to skin so smooth, even, and luminous it appears translucent like glass. The focus is on deep hydration and gentle care.\n\n**Natural Tips for Glass Skin:**\n\n**1. Double Cleanse with Natural Oils**\nStart with natural oils like jojoba or grapeseed oil to dissolve impurities.\n\n**2. Exfoliate Gently with Natural Ingredients**\nUse rice flour, oatmeal, or fruit enzymes (papaya/pineapple) as gentle exfoliators.\n\n**3. Hydrate with Natural Toners**\nRose water, green tea, or cucumber water make excellent hydrating toners.\n\n**4. Layer Natural Moisturizers**\nApply aloe vera gel first, then follow with a natural oil like rosehip or argan oil.\n\n**5. Use Sheet Masks Made from Natural Fibers**\nLook for bamboo or cotton masks soaked in natural ingredients.\n\n**6. Drink Plenty of Water**\nInternal hydration reflects on your skin!\n\n**7. Get Enough Sleep**\nYour skin repairs itself while you rest.\n\n**8. Protect with Natural Sunscreen**\nZinc oxide or titanium dioxide based sunscreens are gentle yet effective.\n\nWith consistent natural care, you can achieve that glass skin glow!',
+                    createdAt: new Date().toISOString()
                 }
             };
             
+            // Case-insensitive lookup in demo articles
             const article = demoArticles[slug];
-            if (!article) {
-                return res.status(404).json({ error: 'Article not found' });
+            if (article) {
+                return res.json(article);
             }
-            return res.json(article);
-        }
-        
-        const articlesRef = db.collection('articles');
-        const snapshot = await articlesRef.where('slug', '==', slug).limit(1).get();
-        
-        if (snapshot.empty) {
+            
             return res.status(404).json({ error: 'Article not found' });
         }
         
+        // Firebase mode - case-insensitive search
+        const articlesRef = db.collection('articles');
+        // Use lowercase comparison in Firestore
+        const snapshot = await articlesRef.get();
+        
         let article = null;
         snapshot.forEach(doc => {
-            article = { id: doc.id, ...doc.data() };
+            const data = doc.data();
+            if (data.slug && data.slug.toLowerCase() === slug) {
+                article = { id: doc.id, ...data };
+            }
         });
+        
+        if (!article) {
+            return res.status(404).json({ error: 'Article not found' });
+        }
+        
         res.json(article);
     } catch (error) {
         console.error('Error fetching article:', error);
@@ -841,9 +877,12 @@ app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
             return res.status(400).json({ error: 'All fields required' });
         }
         
+        // Normalize slug to lowercase
+        const normalizedSlug = slug.toLowerCase().trim();
+        
         const article = {
             title,
-            slug,
+            slug: normalizedSlug,
             imageUrl,
             shortDesc,
             fullContent,
@@ -870,20 +909,28 @@ app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
         const { id } = req.params;
         const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
         
+        // Normalize slug to lowercase if provided
+        const normalizedSlug = slug ? slug.toLowerCase().trim() : undefined;
+        
+        const updateData = {
+            title,
+            imageUrl,
+            shortDesc,
+            fullContent,
+            category: category || 'all',
+            updatedAt: new Date().toISOString()
+        };
+        
+        if (normalizedSlug) {
+            updateData.slug = normalizedSlug;
+        }
+        
         if (!isFirebaseInitialized) {
-            await db.collection('articles').doc(id).update({
-                title, slug, imageUrl, shortDesc, fullContent,
-                category: category || 'all',
-                updatedAt: new Date().toISOString()
-            });
+            await db.collection('articles').doc(id).update(updateData);
             return res.json({ success: true });
         }
         
-        await db.collection('articles').doc(id).update({
-            title, slug, imageUrl, shortDesc, fullContent,
-            category: category || 'all',
-            updatedAt: new Date().toISOString()
-        });
+        await db.collection('articles').doc(id).update(updateData);
         
         res.json({ success: true });
     } catch (error) {
