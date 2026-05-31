@@ -289,7 +289,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Get all articles (with category - BEAUTY CATEGORIES)
+// Get all articles (with category and productLink - BEAUTY CATEGORIES)
 app.get('/api/articles', async (req, res) => {
     try {
         if (!isFirebaseInitialized) {
@@ -305,6 +305,7 @@ app.get('/api/articles', async (req, res) => {
                     imageUrl: data.imageUrl,
                     shortDesc: data.shortDesc,
                     category: data.category || 'all',
+                    productLink: data.productLink || null,
                     createdAt: data.createdAt
                 });
             });
@@ -318,6 +319,7 @@ app.get('/api/articles', async (req, res) => {
                         imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=500',
                         shortDesc: 'Achieve that coveted glass skin look with this complete Korean skincare guide.',
                         category: 'skincare',
+                        productLink: null,
                         createdAt: new Date().toISOString()
                     },
                     {
@@ -327,6 +329,7 @@ app.get('/api/articles', async (req, res) => {
                         imageUrl: 'https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=500',
                         shortDesc: 'Learn how to create a fresh, natural makeup look for daily wear.',
                         category: 'makeup',
+                        productLink: null,
                         createdAt: new Date().toISOString()
                     },
                     {
@@ -336,6 +339,7 @@ app.get('/api/articles', async (req, res) => {
                         imageUrl: 'https://images.unsplash.com/photo-1522338140262-f46f5913618a?w=500',
                         shortDesc: 'Transform your hair with these professional tips and natural remedies.',
                         category: 'haircare',
+                        productLink: null,
                         createdAt: new Date().toISOString()
                     },
                     {
@@ -345,6 +349,7 @@ app.get('/api/articles', async (req, res) => {
                         imageUrl: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500',
                         shortDesc: 'Understanding retinol, vitamin C, niacinamide, and more.',
                         category: 'skincare',
+                        productLink: null,
                         createdAt: new Date().toISOString()
                     },
                     {
@@ -354,6 +359,7 @@ app.get('/api/articles', async (req, res) => {
                         imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=500',
                         shortDesc: 'Quick and easy hairstyles that look professional and stylish.',
                         category: 'haircare',
+                        productLink: null,
                         createdAt: new Date().toISOString()
                     },
                     {
@@ -363,6 +369,7 @@ app.get('/api/articles', async (req, res) => {
                         imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc8ef1af?w=500',
                         shortDesc: 'Everything you need to know about non-toxic beauty products.',
                         category: 'lifestyle',
+                        productLink: null,
                         createdAt: new Date().toISOString()
                     }
                 ]);
@@ -382,6 +389,7 @@ app.get('/api/articles', async (req, res) => {
                 imageUrl: data.imageUrl,
                 shortDesc: data.shortDesc,
                 category: data.category || 'all',
+                productLink: data.productLink || null,
                 createdAt: data.createdAt
             });
         });
@@ -392,7 +400,7 @@ app.get('/api/articles', async (req, res) => {
     }
 });
 
-// Get single article by slug
+// Get single article by slug (with productLink)
 app.get('/api/article/:slug', async (req, res) => {
     try {
         const slug = req.params.slug;
@@ -409,7 +417,7 @@ app.get('/api/article/:slug', async (req, res) => {
                 if (article) return res.json(article);
             }
             
-            // Demo beauty articles content
+            // Demo beauty articles content with product links
             const demoArticles = {
                 'korean-skincare-routine-glass-skin': {
                     id: '1',
@@ -418,6 +426,7 @@ app.get('/api/article/:slug', async (req, res) => {
                     imageUrl: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=800',
                     shortDesc: 'Achieve that coveted glass skin look with this complete Korean skincare guide.',
                     category: 'skincare',
+                    productLink: 'https://amazon.com/korean-skincare-set',
                     fullContent: 'The Korean 10-step skincare routine has taken the beauty world by storm - and for good reason! This comprehensive routine focuses on hydration, gentle exfoliation, and layering products for maximum results.\n\n**Step 1: Oil Cleanser**\nStart with an oil-based cleanser to remove makeup, sunscreen, and excess sebum.\n\n**Step 2: Water-Based Cleanser**\nFollow with a gentle water-based cleanser to remove any remaining impurities.\n\n**Step 3: Exfoliator** (2-3 times per week)\nUse a gentle chemical exfoliant like AHAs or BHAs to remove dead skin cells.\n\n**Step 4: Toner**\nApply a hydrating toner to balance your skin\'s pH levels.\n\n**Step 5: Essence**\nThe heart of K-beauty - an essence boosts hydration and prepares skin for next steps.\n\n**Step 6: Serum/Ampoule**\nTarget specific concerns like dark spots, fine lines, or dullness.\n\n**Step 7: Sheet Mask** (1-2 times per week)\nGive your skin an intense hydration boost with a sheet mask.\n\n**Step 8: Eye Cream**\nGently tap eye cream to address dark circles and fine lines.\n\n**Step 9: Moisturizer**\nLock in all the hydration with a nourishing moisturizer.\n\n**Step 10: Sunscreen** (Morning routine only)\nNever skip SPF - it\'s the most important anti-aging step!',
                     createdAt: new Date().toISOString()
                 },
@@ -428,6 +437,7 @@ app.get('/api/article/:slug', async (req, res) => {
                     imageUrl: 'https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800',
                     shortDesc: 'Learn how to create a fresh, natural makeup look for daily wear.',
                     category: 'makeup',
+                    productLink: 'https://amazon.com/natural-makeup-kit',
                     fullContent: 'Natural makeup is all about enhancing your features while looking like you\'re wearing nothing at all. Here\'s your step-by-step guide to achieving that "no-makeup" makeup look.\n\n**Step 1: Start with Skincare**\nAlways begin with clean, moisturized skin. Let your moisturizer sink in for 5 minutes.\n\n**Step 2: Apply Primer**\nUse a lightweight, illuminating primer for a natural glow.\n\n**Step 3: Light Coverage Foundation or Tinted Moisturizer**\nApply only where needed and blend well with a damp sponge.\n\n**Step 4: Concealer**\nUse concealer only under eyes and on any blemishes. Less is more!\n\n**Step 5: Cream Blush**\nCream blushes give a natural, skin-like finish. Apply to the apples of your cheeks.\n\n**Step 6: Light Bronzer** (optional)\nLightly bronze where the sun naturally hits.\n\n**Step 7: Natural Eyeshadow**\nUse neutral matte shades close to your skin tone. A wash of color is enough.\n\n**Step 8: Curl Lashes + Mascara**\nCurl your lashes and apply 1-2 coats of brown or black mascara.\n\n**Step 9: Brush and Shape Brows**\nFill in sparse areas with a brow pencil in small hair-like strokes.\n\n**Step 10: Tinted Lip Balm or Gloss**\nFinish with a sheer lip color that enhances your natural lip shade.\n\n**Pro tip:** Set everything with a light mist of setting spray for all-day wear!',
                     createdAt: new Date().toISOString()
                 },
@@ -438,6 +448,7 @@ app.get('/api/article/:slug', async (req, res) => {
                     imageUrl: 'https://images.unsplash.com/photo-1522338140262-f46f5913618a?w=800',
                     shortDesc: 'Transform your hair with these professional tips and natural remedies.',
                     category: 'haircare',
+                    productLink: 'https://amazon.com/hair-care-products',
                     fullContent: 'Healthy, shiny hair is achievable with the right care routine. Here are professional tips to transform your hair.\n\n**1. Know Your Hair Type**\nUnderstanding whether you have fine, medium, or coarse hair helps you choose the right products.\n\n**2. Don\'t Overwash**\nWashing 2-3 times per week is enough for most hair types. Overwashing strips natural oils.\n\n**3. Use Lukewarm Water**\nHot water damages hair cuticles. Rinse with cool water for extra shine.\n\n**4. Choose Sulfate-Free Shampoo**\nSulfates are harsh detergents that strip moisture from your hair.\n\n**5. Always Use Conditioner**\nApply from mid-lengths to ends, avoiding the scalp.\n\n**6. Deep Condition Weekly**\nUse a hair mask or deep conditioner once a week for intense hydration.\n\n**7. Limit Heat Styling**\nAir-dry when possible. Always use heat protectant before blow-drying or styling.\n\n**8. Get Regular Trims**\nTrim every 6-8 weeks to prevent split ends.\n\n**9. Protect Hair While Sleeping**\nUse a silk or satin pillowcase to reduce friction and breakage.\n\n**10. Eat a Balanced Diet**\nBiotin, vitamin E, and omega-3 fatty acids promote healthy hair growth.\n\n**Natural Remedies:**\n- Coconut oil mask once a week\n- Aloe vera gel for scalp health\n- Rice water rinse for shine',
                     createdAt: new Date().toISOString()
                 },
@@ -448,6 +459,7 @@ app.get('/api/article/:slug', async (req, res) => {
                     imageUrl: 'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=800',
                     shortDesc: 'Understanding retinol, vitamin C, niacinamide, and more.',
                     category: 'skincare',
+                    productLink: 'https://amazon.com/skincare-ingredients',
                     fullContent: 'Navigating skincare ingredients can be overwhelming. Here\'s your complete guide to what works and why.\n\n**For Anti-Aging:**\n- **Retinol** - The gold standard for reducing fine lines and wrinkles\n- **Vitamin C** - Brightens skin and boosts collagen production\n- **Peptides** - Support skin barrier and firmness\n\n**For Hydration:**\n- **Hyaluronic Acid** - Holds 1000x its weight in water\n- **Glycerin** - A humectant that draws moisture to skin\n- **Squalane** - Mimics skin\'s natural oils\n\n**For Acne-Prone Skin:**\n- **Salicylic Acid** - Unclogs pores and reduces inflammation\n- **Benzoyl Peroxide** - Kills acne-causing bacteria\n- **Niacinamide** - Reduces redness and regulates oil\n\n**For Hyperpigmentation:**\n- **Vitamin C** - Brightens dark spots\n- **Kojic Acid** - Natural skin lightener\n- **Azelaic Acid** - Treats both acne and pigmentation\n\n**For Sensitive Skin:**\n- **Centella Asiatica** - Soothes inflammation\n- **Ceramides** - Repairs skin barrier\n- **Oat Extract** - Calms irritation\n\n**How to Layer Ingredients:**\n1. Cleanse\n2. Toner\n3. Vitamin C (morning) / Retinol (night)\n4. Serums (thinnest to thickest)\n5. Moisturizer\n6. Sunscreen (morning only)\n\n**Never Mix:**\n- Retinol + AHAs/BHAs\n- Vitamin C + Niacinamide (can cause flushing in some skin types)\n- Multiple exfoliants together',
                     createdAt: new Date().toISOString()
                 },
@@ -458,6 +470,7 @@ app.get('/api/article/:slug', async (req, res) => {
                     imageUrl: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=800',
                     shortDesc: 'Quick and easy hairstyles that look professional and stylish.',
                     category: 'haircare',
+                    productLink: 'https://amazon.com/hair-accessories',
                     fullContent: 'Short on time? These 5-minute hairstyles will save your busy mornings.\n\n**1. The Effortless Low Bun**\n- Gather hair at the nape of your neck\n- Twist and wrap into a bun\n- Secure with bobby pins\n- Pull out a few face-framing pieces\n\n**2. Sleek High Ponytail**\n- Brush hair smooth\n- Gather at crown\n- Secure with elastic\n- Wrap a small section around the elastic\n\n**3. Half-Up, Half-Down**\n- Take top section of hair\n- Twist or braid\n- Secure with clip or elastic\n- Add volume by gently pulling layers\n\n**4. The Claw Clip Style**\n- Twist hair upward\n- Secure with claw clip\n- Let ends fan out for a chic look\n\n**5. French Twist in Seconds**\n- Gather hair to one side\n- Twist upward\n- Pin in place\n\n**6. Slicked Back Wet Look**\n- Apply gel to damp hair\n- Comb back\n- Secure in low ponytail or bun\n\n**7. Top Knot**\n- Flip head upside down\n- Gather hair at crown\n- Twist into a tight bun\n\n**Pro Tips:**\n- Prep hair with dry shampoo the night before\n- Use a silk scrunchie to prevent creases\n- Keep accessories like claw clips and headbands handy',
                     createdAt: new Date().toISOString()
                 },
@@ -468,6 +481,7 @@ app.get('/api/article/:slug', async (req, res) => {
                     imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc8ef1af?w=800',
                     shortDesc: 'Everything you need to know about non-toxic beauty products.',
                     category: 'lifestyle',
+                    productLink: 'https://amazon.com/clean-beauty-products',
                     fullContent: 'Clean beauty is more than a trend - it\'s a movement toward transparency and safety in cosmetics.\n\n**What Is Clean Beauty?**\nClean beauty products are formulated without ingredients that are known or suspected to harm human health. This includes avoiding toxins, carcinogens, and endocrine disruptors.\n\n**Ingredients to Avoid:**\n- Parabens (preservatives linked to hormone disruption)\n- Phthalates (found in fragrances, linked to reproductive issues)\n- Sulfates (SLS/SLES - harsh detergents)\n- Formaldehyde-releasing preservatives\n- Oxybenzone (sunscreen ingredient harmful to coral reefs)\n- PEG compounds (often contaminated with toxins)\n- Synthetic fragrances (can contain phthalates)\n\n**Clean Beauty Certifications to Look For:**\n- EWG Verified\n- Leaping Bunny (cruelty-free)\n- COSMOS Organic\n- Made Safe\n\n**Best Clean Beauty Brands:**\nWe recommend researching brands that are transparent about their ingredients and manufacturing processes.\n\n**How to Transition to Clean Beauty:**\n1. Start with products you use daily (moisturizer, cleanser)\n2. Replace as you run out - no need to throw everything away\n3. Use apps like Think Dirty or EWG Healthy Living to scan products\n4. Focus on leave-on products first (serums, moisturizers)\n5. Don\'t fall for greenwashing - read ingredient labels yourself\n\n**The Bottom Line:**\nClean beauty is about making informed choices. You don\'t need to be perfect - small changes add up over time.',
                     createdAt: new Date().toISOString()
                 }
@@ -832,13 +846,13 @@ app.get('/api/admin/ebooks', verifyAdmin, async (req, res) => {
     }
 });
 
-// Add article (WITH CATEGORY - beauty categories)
+// Add article (WITH CATEGORY AND PRODUCT LINK - beauty categories)
 app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
     try {
-        const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
+        const { title, slug, imageUrl, shortDesc, fullContent, category, productLink } = req.body;
         
         if (!title || !slug || !imageUrl || !shortDesc || !fullContent) {
-            return res.status(400).json({ error: 'All fields required' });
+            return res.status(400).json({ error: 'All required fields missing' });
         }
         
         const article = {
@@ -848,6 +862,7 @@ app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
             shortDesc,
             fullContent,
             category: category || 'all',
+            productLink: productLink || null,
             createdAt: new Date().toISOString()
         };
         
@@ -864,27 +879,29 @@ app.post('/api/admin/articles', verifyAdmin, async (req, res) => {
     }
 });
 
-// Update article
+// Update article (WITH PRODUCT LINK)
 app.put('/api/admin/articles/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, slug, imageUrl, shortDesc, fullContent, category } = req.body;
+        const { title, slug, imageUrl, shortDesc, fullContent, category, productLink } = req.body;
+        
+        const updateData = {
+            title,
+            slug,
+            imageUrl,
+            shortDesc,
+            fullContent,
+            category: category || 'all',
+            productLink: productLink || null,
+            updatedAt: new Date().toISOString()
+        };
         
         if (!isFirebaseInitialized) {
-            await db.collection('articles').doc(id).update({
-                title, slug, imageUrl, shortDesc, fullContent,
-                category: category || 'all',
-                updatedAt: new Date().toISOString()
-            });
+            await db.collection('articles').doc(id).update(updateData);
             return res.json({ success: true });
         }
         
-        await db.collection('articles').doc(id).update({
-            title, slug, imageUrl, shortDesc, fullContent,
-            category: category || 'all',
-            updatedAt: new Date().toISOString()
-        });
-        
+        await db.collection('articles').doc(id).update(updateData);
         res.json({ success: true });
     } catch (error) {
         console.error('Error updating article:', error);
